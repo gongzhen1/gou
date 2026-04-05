@@ -219,6 +219,7 @@ func (disk *Disk) Watch(handler func(event string, name string), interrupt chan 
 	})
 
 	if err != nil {
+		fmt.Printf("[Watch] %s", err.Error())
 		return err
 	}
 
