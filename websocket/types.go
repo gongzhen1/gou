@@ -178,3 +178,18 @@ type Limit struct {
 	MaxMessage int `json:"max-message,omitempty"` // Maximum message size allowed from peer. bytes
 	pingPeriod int `json:"-"`                     // Send pings to peer with this period. Must be less than pongWait. (pongWait * 9) / 10
 }
+
+// WebSocket the websocket struct
+type WebSocket struct {
+	WSClientOption
+	Event  WebSocketEvent `json:"event,omitempty"`
+	Client *WSClient
+}
+
+// WebSocketEvent the websocket  struct
+type WebSocketEvent struct {
+	Data      string `json:"data,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Closed    string `json:"closed,omitempty"`
+	Connected string `json:"connected,omitempty"`
+}
