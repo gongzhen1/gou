@@ -57,7 +57,7 @@ func Load(file string, name string) (*Schedule, error) {
 		return nil, err
 	}
 
-	c := cron.New()
+	c := cron.New(cron.WithSeconds())
 	id, err := c.AddFunc(sch.Schedule, handler)
 
 	if err != nil {
@@ -124,6 +124,10 @@ func (sch *Schedule) handler() (func(), error) {
 
 // Start start the schedule
 func (sch *Schedule) Start() {
+	sch, has := Schedules[sch.name]
+	if has && sch.Enabled {
+		sch.cron.Stop()
+	}
 	sch.Enabled = true
 	sch.cron.Start()
 }
@@ -136,14 +140,20 @@ func (sch *Schedule) Stop() {
 
 // processScheduleStart
 func processScheduleStart(process *process.Process) interface{} {
-	sch := Select(process.ID)
+	if len(process.Args) != 1 {
+		exception.New("Schedule name is required", 400).Throw()
+	}
+	sch := Select(process.Args[0].(string))
 	sch.Start()
 	return map[string]interface{}{"enabled": sch.Enabled}
 }
 
 // processScheduleStop
 func processScheduleStop(process *process.Process) interface{} {
-	sch := Select(process.ID)
+	if len(process.Args) != 1 {
+		exception.New("Schedule name is required", 400).Throw()
+	}
+	sch := Select(process.Args[0].(string))
 	sch.Stop()
 	return map[string]interface{}{"enabled": sch.Enabled}
 }
