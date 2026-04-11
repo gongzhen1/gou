@@ -445,6 +445,100 @@ func (gou Query) ExecuteSQL(data maps.Map) interface{} {
 	return result
 }
 
+// BatchInsert 批量插入
+// data: {"table": "user", "values": [{"name": "John", "age": 20}, {"name": "Jane", "age": 22}]}
+// or: {"table": "user", "columns": ["name", "age"], "values": [["John", 20], ["Jane", 22]]}
+func (gou Query) BatchInsert(data maps.Map) interface{} {
+	if gou.Query == nil {
+		exception.New("未绑定数据连接", 500).Throw()
+	}
+
+	tableVal := data.Get("table")
+	if tableVal == nil {
+		exception.New("表名不能为空", 400).Throw()
+	}
+	table, ok := tableVal.(string)
+	if !ok || table == "" {
+		exception.New("表名不能为空", 400).Throw()
+	}
+
+	valuesVal := data.Get("values")
+	if valuesVal == nil {
+		exception.New("数据不能为空", 400).Throw()
+	}
+
+	columnsVal := data.Get("columns")
+	var columns []string
+	if columnsVal != nil {
+		switch vals := columnsVal.(type) {
+		case []string:
+			columns = vals
+		case []interface{}:
+			for _, v := range vals {
+				if s, ok := v.(string); ok {
+					columns = append(columns, s)
+				}
+			}
+		}
+	}
+
+	// Get query builder
+	qb := gou.Query.New()
+
+	// Prepare insert values using xun's MakeRows
+	insertValues := xun.MakeRows(valuesVal)
+	if len(insertValues) == 0 {
+		exception.New("数据不能为空", 400).Throw()
+	}
+
+	// Get columns from first row if not specified
+	if len(columns) == 0 {
+		cols := insertValues[0].Keys()
+		for _, k := range cols {
+			if s, ok := k.(string); ok {
+				columns = append(columns, s)
+			}
+		}
+	}
+
+	// Build column list
+	columnList := strings.Join(columns, ", ")
+
+	// Build placeholders and bindings
+	bindings := []interface{}{}
+	valueStrings := []string{}
+	for _, row := range insertValues {
+		placeholders := []string{}
+		for _, col := range columns {
+			placeholders = append(placeholders, "?")
+			bindings = append(bindings, row.Get(col))
+		}
+		valueStrings = append(valueStrings, "("+strings.Join(placeholders, ", ")+")")
+	}
+	valuesString := strings.Join(valueStrings, ", ")
+
+	// Build the INSERT SQL
+	sql := "INSERT INTO " + table + " (" + columnList + ") VALUES " + valuesString
+
+	if gou.Debug {
+		fmt.Println(sql)
+		utils.Dump(bindings)
+	}
+
+	// Execute using DB
+	res, err := qb.DB().Exec(sql, bindings...)
+	if err != nil {
+		exception.New("批量插入失败 %s", 500, err.Error()).Throw()
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		exception.New("批量插入失败 %s", 500, err.Error()).Throw()
+	}
+
+	return map[string]interface{}{"rowsAffected": affected}
+}
+
 // format 格式化输出
 func (gou Query) format(row xun.R) share.Record {
 	res := share.Record{}

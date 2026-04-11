@@ -12,6 +12,7 @@ Get(data maps.Map) []Record      // 执行查询并返回数据记录集合
 Paginate(data maps.Map) Paginate // 执行查询并返回带分页信息的数据记录数
 First(data maps.Map) Record      // 执行查询并返回一条数据记录
 ExecuteSQL(data maps.Map) interface{}   // 执行原生SQL，支持参数绑定
+BatchInsert(data maps.Map) interface{} // 批量插入
 }
 
 // Record 数据记录

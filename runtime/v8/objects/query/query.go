@@ -29,7 +29,7 @@ func New() *Object {
 // query.Paginate({"select":["id"], "from":"user"})
 // query.First({"select":["id"], "from":"user"})
 // query.Run({"stmt":"show version"})
-// query.Exec({"sql":"SELECT * FROM user WHERE id = ?", "params":[1]}) // Execute native SQL
+// query.Sql({"sql":"SELECT * FROM user WHERE id = ?", "params":[1]}) // Execute native SQL
 // query.Lint('{"select":["id"], "from":"user"}') // Validate DSL
 // query.Schema() // Get JSON Schema
 // query.Validate({"select":["id"], "from":"user"}) // Validate against JSON Schema
@@ -39,7 +39,8 @@ func (obj *Object) ExportObject(iso *v8go.Isolate) *v8go.ObjectTemplate {
 	tmpl.Set("Run", obj.run(iso))
 	tmpl.Set("Paginate", obj.paginate(iso))
 	tmpl.Set("First", obj.first(iso))
-	tmpl.Set("Exec", obj.executeSQL(iso))
+	tmpl.Set("Sql", obj.executeSQL(iso))
+	tmpl.Set("BatchInsert", obj.batchInsert(iso))
 	tmpl.Set("Lint", obj.lint(iso))
 	tmpl.Set("Schema", obj.schema(iso))
 	tmpl.Set("Validate", obj.validate(iso))
@@ -157,9 +158,6 @@ func (obj *Object) run(iso *v8go.Isolate) *v8go.FunctionTemplate {
 	})
 }
 
-// lint validates a QueryDSL string and returns diagnostics
-// query.Lint('{"select":["id"], "from":"user"}')
-// Returns: { valid: bool, diagnostics: [...], dsl: {...} }
 // sql executes native SQL with parameter binding
 // query.ExecuteSQL({"sql":"SELECT * FROM user WHERE id = ?", "params":[1]})
 // query.ExecuteSQL({"sql":"INSERT INTO user (name) VALUES (?)", "params":["John"]})
@@ -184,6 +182,30 @@ func (obj *Object) executeSQL(iso *v8go.Isolate) *v8go.FunctionTemplate {
 		return obj.response(iso, info, data)
 	})
 }
+
+// BatchInsert 批量插入
+// data: {"table": "user", "values": [{"name": "John", "age": 20}, {"name": "Jane", "age": 22}]}
+// or: {"table": "user", "columns": ["name", "age"], "values": [["John", 20], ["Jane", 22]]}
+func (obj *Object) batchInsert(iso *v8go.Isolate) *v8go.FunctionTemplate {
+	return v8go.NewFunctionTemplate(iso, func(info *v8go.FunctionCallbackInfo) *v8go.Value {
+		args := info.Args()
+		if len(args) < 1 {
+			msg := fmt.Sprintf("Query: %s", "Missing parameters")
+			log.Error("%s", msg)
+			return bridge.JsException(info.Context(), msg)
+		}
+
+		data, err := obj.runQuerybatchInsert(iso, info, args[0])
+		if err != nil {
+			msg := fmt.Sprintf("Query: %s", err.Error())
+			log.Error("%s", msg)
+			return bridge.JsException(info.Context(), msg)
+		}
+
+		return obj.response(iso, info, data)
+	})
+}
+
 func (obj *Object) lint(iso *v8go.Isolate) *v8go.FunctionTemplate {
 	return v8go.NewFunctionTemplate(iso, func(info *v8go.FunctionCallbackInfo) *v8go.Value {
 		args := info.Args()
@@ -364,6 +386,29 @@ func (obj *Object) runQueryExecuteSQL(iso *v8go.Isolate, info *v8go.FunctionCall
 	}
 	return nil, fmt.Errorf("Query: %s", "parameters format error")
 }
+func (obj *Object) runQuerybatchInsert(iso *v8go.Isolate, info *v8go.FunctionCallbackInfo, param *v8go.Value) (data interface{}, err error) {
+	defer func() { err = exception.Catch(recover()) }()
+	engine, err := obj.getEngine(info)
+	if err != nil {
+		msg := fmt.Sprintf("Query: %s", err.Error())
+		log.Error("%s", msg)
+		return nil, err
+	}
+
+	v, err := bridge.GoValue(param, info.Context())
+	if err != nil {
+		return nil, err
+	}
+
+	switch val := v.(type) {
+	case map[string]interface{}:
+		var params = maps.Of(val)
+		data = engine.BatchInsert(params)
+		return data, err
+	}
+	return nil, fmt.Errorf("Query: %s", "parameters format error")
+}
+
 func (obj *Object) response(iso *v8go.Isolate, info *v8go.FunctionCallbackInfo, data interface{}) *v8go.Value {
 	res, err := bridge.JsValue(info.Context(), data)
 	if err != nil {
