@@ -449,6 +449,7 @@ func (gou Query) ExecuteSQL(data maps.Map) interface{} {
 // BatchInsert 批量插入
 // data: {"table": "user", "params": [{"name": "John", "age": 20}, {"name": "Jane", "age": 22}]}
 // or: {"table": "user", "columns": ["name", "age"], "values": [["John", 20], ["Jane", 22]]}
+// 可选参数: "batchSize": 1000 (每批插入的记录数，默认1000)
 func (gou Query) BatchInsert(data maps.Map) interface{} {
 	if gou.Query == nil {
 		exception.New("未绑定数据连接", 500).Throw()
@@ -505,39 +506,104 @@ func (gou Query) BatchInsert(data maps.Map) interface{} {
 	// Build column list
 	columnList := strings.Join(columns, ", ")
 
-	// Build placeholders and bindings
-	bindings := []interface{}{}
-	valueStrings := []string{}
-	for _, row := range insertValues {
-		placeholders := []string{}
-		for _, col := range columns {
-			placeholders = append(placeholders, "?")
-			bindings = append(bindings, row.Get(col))
+	// 分批插入配置
+	batchSize := 1000 // 默认每批插入的记录数
+	if batchSizeVal := data.Get("batchSize"); batchSizeVal != nil {
+		if bs, ok := batchSizeVal.(int); ok && bs > 0 {
+			batchSize = bs
+		} else if bs, ok := batchSizeVal.(float64); ok && bs > 0 {
+			batchSize = int(bs)
 		}
-		valueStrings = append(valueStrings, "("+strings.Join(placeholders, ", ")+")")
-	}
-	valuesString := strings.Join(valueStrings, ", ")
-
-	// Build the INSERT SQL
-	sql := "INSERT INTO " + table + " (" + columnList + ") VALUES " + valuesString
-
-	if gou.Debug {
-		fmt.Println(sql)
-		utils.Dump(bindings)
 	}
 
-	// Execute using DB
-	res, err := qb.DB().Exec(sql, bindings...)
-	if err != nil {
-		exception.New("批量插入失败 %s", 500, err.Error()).Throw()
+	totalRows := len(insertValues)
+	totalAffected := int64(0)
+
+	// 如果数据量小于等于批次大小，直接插入
+	if totalRows <= batchSize {
+		// Build placeholders and bindings
+		bindings := []interface{}{}
+		valueStrings := []string{}
+		for _, row := range insertValues {
+			placeholders := []string{}
+			for _, col := range columns {
+				placeholders = append(placeholders, "?")
+				bindings = append(bindings, row.Get(col))
+			}
+			valueStrings = append(valueStrings, "("+strings.Join(placeholders, ", ")+")")
+		}
+		valuesString := strings.Join(valueStrings, ", ")
+
+		// Build the INSERT SQL
+		sql := "INSERT INTO " + table + " (" + columnList + ") VALUES " + valuesString
+
+		if gou.Debug {
+			fmt.Println("批量插入 (单批次):")
+			fmt.Println(sql)
+			utils.Dump(bindings)
+		}
+
+		// Execute using DB
+		res, err := qb.DB().Exec(sql, bindings...)
+		if err != nil {
+			exception.New("批量插入失败: %s", 500, err.Error()).Throw()
+		}
+
+		affected, err := res.RowsAffected()
+		if err != nil {
+			exception.New("批量插入失败: %s", 500, err.Error()).Throw()
+		}
+
+		return map[string]interface{}{"rowsAffected": affected}
 	}
 
-	affected, err := res.RowsAffected()
-	if err != nil {
-		exception.New("批量插入失败 %s", 500, err.Error()).Throw()
+	// 分批处理
+	for start := 0; start < totalRows; start += batchSize {
+		end := start + batchSize
+		if end > totalRows {
+			end = totalRows
+		}
+
+		// 获取当前批次的数据
+		batchValues := insertValues[start:end]
+
+		// Build placeholders and bindings for current batch
+		bindings := []interface{}{}
+		valueStrings := []string{}
+		for _, row := range batchValues {
+			placeholders := []string{}
+			for _, col := range columns {
+				placeholders = append(placeholders, "?")
+				bindings = append(bindings, row.Get(col))
+			}
+			valueStrings = append(valueStrings, "("+strings.Join(placeholders, ", ")+")")
+		}
+		valuesString := strings.Join(valueStrings, ", ")
+
+		// Build the INSERT SQL for current batch
+		sql := "INSERT INTO " + table + " (" + columnList + ") VALUES " + valuesString
+
+		if gou.Debug {
+			fmt.Printf("批量插入批次 %d-%d/%d (批次大小: %d)\n", start+1, end, totalRows, batchSize)
+			fmt.Println(sql)
+			utils.Dump(bindings)
+		}
+
+		// Execute using DB
+		res, err := qb.DB().Exec(sql, bindings...)
+		if err != nil {
+			exception.New("批量插入失败 (批次 %d-%d): %s", 500, start+1, end, err.Error()).Throw()
+		}
+
+		affected, err := res.RowsAffected()
+		if err != nil {
+			exception.New("批量插入失败 (批次 %d-%d): %s", 500, start+1, end, err.Error()).Throw()
+		}
+
+		totalAffected += affected
 	}
 
-	return map[string]interface{}{"rowsAffected": affected}
+	return map[string]interface{}{"rowsAffected": totalAffected}
 }
 
 // format 格式化输出
