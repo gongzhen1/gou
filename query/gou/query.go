@@ -3,6 +3,8 @@ package gou
 import (
 	"bytes"
 	"fmt"
+	"github.com/yaoapp/gou/connector"
+	"github.com/yaoapp/gou/connector/database"
 	"io"
 	"math"
 	"os"
@@ -128,7 +130,24 @@ func (gou Query) GetBindings() []interface{} {
 // ==================================================
 
 // Load 加载查询条件
+// Load 加载查询条件
 func (gou *Query) Load(data interface{}) (share.DSL, error) {
+	if str, ok := data.(string); ok {
+		conn, err := connector.Select(str)
+		if err != nil {
+			return nil, err
+		}
+		if db, ok := conn.(*database.Xun); ok {
+			qb, err := db.Query()
+			if err != nil {
+				return nil, err
+			}
+			gou.Query = qb
+		} else {
+			return nil, errors.New("connector is not a database")
+		}
+		data = map[string]interface{}{}
+	}
 
 	input, err := jsoniter.Marshal(data)
 	if err != nil {
@@ -359,6 +378,73 @@ func (gou Query) First(data maps.Map) share.Record {
 	return nil
 }
 
+// ExecuteSQL 执行原生SQL，支持参数绑定
+// data: {"sql": "SELECT * FROM user WHERE id = ?", "bindings": [1]}
+func (gou Query) ExecuteSQL(data maps.Map) interface{} {
+	if gou.Query == nil {
+		exception.New("未绑定数据连接", 500).Throw()
+	}
+
+	sqlVal := data.Get("sql")
+	if sqlVal == nil {
+		exception.New("SQL语句不能为空", 400).Throw()
+	}
+
+	sqlStr, ok := sqlVal.(string)
+	if !ok || sqlStr == "" {
+		exception.New("SQL语句不能为空", 400).Throw()
+	}
+
+	bindings := []interface{}{}
+	bindingsVal := data.Get("params")
+	if bindingsVal != nil {
+		switch val := bindingsVal.(type) {
+		case []interface{}:
+			bindings = val
+		default:
+			bindings = []interface{}{bindingsVal}
+		}
+	}
+
+	qb := gou.Query.New()
+	qb.SQL(sqlStr, bindings...)
+
+	if gou.Debug {
+		fmt.Println(sqlStr)
+		utils.Dump(bindings)
+	}
+
+	if strings.Contains(strings.ToUpper(sqlStr), "SELECT") {
+		rows := qb.MustGet()
+		if rows == nil {
+			return []share.Record{}
+		}
+		res := []share.Record{}
+		for _, row := range rows {
+			res = append(res, gou.format(row))
+		}
+		return res
+	}
+
+	res, err := qb.DB().Exec(sqlStr, bindings...)
+	if err != nil {
+		exception.New("SQL执行错误 %s", 500, err.Error()).Throw()
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		exception.New("SQL执行错误 %s", 500, err.Error()).Throw()
+	}
+
+	insertID, insertErr := res.LastInsertId()
+	result := map[string]interface{}{
+		"rowsAffected": affected,
+	}
+	if insertErr == nil {
+		result["lastInsertId"] = insertID
+	}
+	return result
+}
+
 // format 格式化输出
 func (gou Query) format(row xun.R) share.Record {
 	res := share.Record{}
@@ -391,7 +477,6 @@ func (gou Query) format(row xun.R) share.Record {
 	return res
 }
 
-// prepare 与查询准备
 func (gou *Query) prepare(data maps.Map) (string, []interface{}) {
 
 	if gou.STMT == "" {
