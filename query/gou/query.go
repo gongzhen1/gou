@@ -3,12 +3,13 @@ package gou
 import (
 	"bytes"
 	"fmt"
-	"github.com/yaoapp/gou/connector"
-	"github.com/yaoapp/gou/connector/database"
 	"io"
 	"math"
 	"os"
 	"strings"
+
+	"github.com/yaoapp/gou/connector"
+	"github.com/yaoapp/gou/connector/database"
 
 	"github.com/go-errors/errors"
 	jsoniter "github.com/json-iterator/go"
@@ -446,7 +447,7 @@ func (gou Query) ExecuteSQL(data maps.Map) interface{} {
 }
 
 // BatchInsert 批量插入
-// data: {"table": "user", "values": [{"name": "John", "age": 20}, {"name": "Jane", "age": 22}]}
+// data: {"table": "user", "params": [{"name": "John", "age": 20}, {"name": "Jane", "age": 22}]}
 // or: {"table": "user", "columns": ["name", "age"], "values": [["John", 20], ["Jane", 22]]}
 func (gou Query) BatchInsert(data maps.Map) interface{} {
 	if gou.Query == nil {
@@ -462,7 +463,7 @@ func (gou Query) BatchInsert(data maps.Map) interface{} {
 		exception.New("表名不能为空", 400).Throw()
 	}
 
-	valuesVal := data.Get("values")
+	valuesVal := data.Get("params")
 	if valuesVal == nil {
 		exception.New("数据不能为空", 400).Throw()
 	}

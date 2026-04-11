@@ -184,7 +184,7 @@ func (obj *Object) executeSQL(iso *v8go.Isolate) *v8go.FunctionTemplate {
 }
 
 // BatchInsert 批量插入
-// data: {"table": "user", "values": [{"name": "John", "age": 20}, {"name": "Jane", "age": 22}]}
+// data: {"table": "user", "params": [{"name": "John", "age": 20}, {"name": "Jane", "age": 22}]}
 // or: {"table": "user", "columns": ["name", "age"], "values": [["John", 20], ["Jane", 22]]}
 func (obj *Object) batchInsert(iso *v8go.Isolate) *v8go.FunctionTemplate {
 	return v8go.NewFunctionTemplate(iso, func(info *v8go.FunctionCallbackInfo) *v8go.Value {
