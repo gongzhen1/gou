@@ -314,6 +314,11 @@ func (path Path) execProcess(ctx context.Context, chRes chan<- interface{}, c *g
 		}
 	}
 
+	if process.Global == nil {
+		process.Global = map[string]interface{}{}
+	}
+	process.Global["__context_id"] = storeGinContext(c)
+
 	// Set authorized info - compatible with both direct __authorized and individual fields
 	if authorized := getAuthorizedInfo(c); authorized != nil {
 		process.WithAuthorized(authorized)
@@ -345,6 +350,11 @@ func (path Path) runProcess(ctx context.Context, c *gin.Context, getArgs argsHan
 			process.WithGlobal(global)
 		}
 	}
+
+	if process.Global == nil {
+		process.Global = map[string]interface{}{}
+	}
+	process.Global["__context_id"] = storeGinContext(c)
 
 	// Set authorized info - compatible with both direct __authorized and individual fields
 	if authorized := getAuthorizedInfo(c); authorized != nil {

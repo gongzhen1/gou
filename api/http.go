@@ -77,6 +77,13 @@ func ProcessGuard(name string, cors ...gin.HandlerFunc) gin.HandlerFunc {
 			}
 		}
 
+		// Store gin.Context for context handlers
+		if process.Global == nil {
+			process.Global = map[string]interface{}{}
+		}
+		process.Global["__context_id"] = storeGinContext(c)
+		defer removeGinContext(process.Global["__context_id"].(uint64))
+
 		err = process.Execute()
 		if err != nil {
 			ex := exception.New(err.Error(), 500)

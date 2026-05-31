@@ -8,8 +8,8 @@ import (
 
 	mqttlib "github.com/eclipse/paho.mqtt.golang"
 	"github.com/yaoapp/gou/application"
-	"github.com/yaoapp/kun/log"
 	"github.com/yaoapp/gou/process"
+	"github.com/yaoapp/kun/log"
 )
 
 // Clients 存储所有 MQTT 客户端实例
