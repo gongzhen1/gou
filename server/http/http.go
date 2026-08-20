@@ -68,6 +68,18 @@ func (server *Server) Start() error {
 		return fmt.Errorf("server is starting")
 	}
 
+	// Drain stale events/signals from a previous run. The event channel is
+	// buffered (size 1) and nobody consumes READY after Start returns, so on a
+	// restart the goroutine's `server.event <- READY` would block forever and
+	// srv.Serve() would never run. The signal channel may also hold a leftover
+	// ERROR from the previous run.
+	for len(server.event) > 0 {
+		<-server.event
+	}
+	for len(server.signal) > 0 {
+		<-server.signal
+	}
+
 	server.status = STARTING
 
 	// Server Setting
@@ -155,15 +167,9 @@ func (server *Server) Start() error {
 				break
 
 			case CLOSE:
-				err = listener.Close()
+				err = srv.Close() // srv.Close() also closes the listener
 				if err != nil {
 					log.Error("[Server] %s close error (%s)", srv.Addr, err.Error())
-					return err
-				}
-
-				err = srv.Close()
-				if err != nil {
-					log.Error("[Server] %s restarting (%s)", srv.Addr, err.Error())
 					return err
 				}
 
@@ -174,12 +180,9 @@ func (server *Server) Start() error {
 				log.Info("[Server] %s was closed (for restarting)", srv.Addr)
 				server.status = RESTARTING
 
-				err = listener.Close()
-				if err != nil {
-					log.Error("[Server] %s restarting (%s)", srv.Addr, err.Error())
-					return err
-				}
-
+				// srv.Close() also closes the listener. Closing the listener first
+				// would make srv.Serve() return a non-ErrServerClosed error, which
+				// the goroutine sends as an ERROR signal and kills the restarted server.
 				err = srv.Close()
 				if err != nil {
 					log.Error("[Server] %s restarting (%s)", srv.Addr, err.Error())
