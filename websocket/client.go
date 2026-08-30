@@ -97,17 +97,17 @@ func (ws *WSClient) Open() error {
 		ws.emitError(err)
 		// fmt.Printf("ws.option.Attempts > ws.attemptTimes: %v > %v = %v\n", ws.option.Attempts, ws.attemptTimes, ws.option.Attempts > ws.attemptTimes)
 		ws.status = WAITING
-		if ws.option.Attempts > ws.attemptTimes {
-			ws.attemptTimes = ws.attemptTimes + 1
-			if ws.attemptAfter > 0 {
-				var after = time.Duration(int(ws.attemptAfter) * ws.attemptTimes)
-				log.With(log.F{"option": ws.option}).Trace("Try to reconnect after %v", after)
-				time.Sleep(after)
-			}
-			log.With(log.F{"option": ws.option}).Trace("Connecting ... %d/%d", ws.attemptTimes, ws.option.Attempts)
-			return ws.Open()
+		if ws.option.Attempts == 0 {
+			return err
 		}
-		return err
+		ws.attemptTimes = ws.attemptTimes + 1
+		if ws.attemptAfter > 0 {
+			var after = time.Duration(int(ws.attemptAfter) * ws.attemptTimes)
+			log.With(log.F{"option": ws.option}).Trace("Try to reconnect after %v", after)
+			time.Sleep(after)
+		}
+		log.With(log.F{"option": ws.option}).Trace("Connecting ... %d/%d", ws.attemptTimes, ws.option.Attempts)
+		return ws.Open()
 	}
 
 	log.With(log.F{"option": ws.option}).Trace("Connected")

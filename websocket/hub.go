@@ -10,7 +10,7 @@ import (
 
 func newHub() *Hub {
 	return &Hub{
-		broadcast:  make(chan []byte),
+		broadcast:  make(chan []byte, 256),
 		direct:     make(chan []byte),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
