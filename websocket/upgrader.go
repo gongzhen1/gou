@@ -32,6 +32,18 @@ var Upgraders = map[string]*Upgrader{}
 //	}
 func NewUpgrader(name string, config ...[]byte) (*Upgrader, error) {
 
+	// 同名 upgrader 已存在时复用实例：保留正在运行的 hub 与在线客户端，仅刷新配置字段。
+	// 否则热重载会用未启动 hub 的新实例覆盖 map 中的旧实例，
+	// 导致 Broadcast 发到无人消费的新 hub，在线客户端收不到消息。
+	if upgrader, has := Upgraders[name]; has {
+		if len(config) > 0 {
+			if err := jsoniter.Unmarshal(config[0], upgrader); err != nil {
+				return nil, err
+			}
+		}
+		return upgrader, nil
+	}
+
 	// the default values
 	var upgrader = &Upgrader{
 		name:      name,

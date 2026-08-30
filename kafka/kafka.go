@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -19,6 +20,10 @@ import (
 
 // Clients 存储所有 Kafka 客户端实例
 var Clients = map[string]*Client{}
+
+// mu 保护 Clients 映射以及"停止+创建+注册"序列，
+// 避免文件监视热重载与 kafka.start 并发加载时产生多个消费者实例
+var mu sync.Mutex
 
 // Client Kafka 客户端
 type Client struct {
@@ -48,6 +53,15 @@ type TopicConfig struct {
 
 // Load 加载单个 Kafka 配置文件
 func Load(file string, name string) (*Client, error) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	// 同名客户端已存在时先停止，避免热重载/重复调用产生多个消费者
+	if client, ok := Clients[name]; ok {
+		client.Stop()
+		delete(Clients, name)
+	}
+
 	data, err := application.App.Read(file)
 	if err != nil {
 		return nil, err
@@ -162,6 +176,15 @@ func (c *Client) consume(topic TopicConfig, dialer *kafkago.Dialer) {
 	reader := kafkago.NewReader(readerConfig)
 	defer reader.Close()
 
+	// 简单模式（无消费者组）下 kafka-go 会忽略 ReaderConfig.StartOffset，
+	// 每次启动默认从分区开头（FirstOffset）读取，导致重启后重读历史消息。
+	// 手动将起始偏移设为分区当前最新偏移，仅消费后续新消息。
+	if c.GroupID == "" {
+		if err := reader.SetOffset(kafkago.LastOffset); err != nil {
+			log.Error("[Kafka] client %s: set start offset to latest failed: %v", c.Name, err)
+		}
+	}
+
 	if c.GroupID != "" {
 		log.Info("[Kafka] client %s: start consuming topic %s (group: %s)", c.Name, topic.Topic, c.GroupID)
 	} else {
@@ -178,7 +201,7 @@ func (c *Client) consume(topic TopicConfig, dialer *kafkago.Dialer) {
 
 		msg, err := reader.ReadMessage(c.ctx)
 		if err != nil {
-			if err == context.Canceled {
+			if errors.Is(err, context.Canceled) {
 				return
 			}
 			log.Error("[Kafka] client %s: read message error: %v", c.Name, err)
@@ -268,6 +291,8 @@ func (c *Client) Publish(topic string, key string, payload interface{}) error {
 
 // Select 获取客户端
 func Select(name string) *Client {
+	mu.Lock()
+	defer mu.Unlock()
 	client, ok := Clients[name]
 	if !ok {
 		return nil
@@ -277,6 +302,8 @@ func Select(name string) *Client {
 
 // StopAll 停止所有客户端
 func StopAll() {
+	mu.Lock()
+	defer mu.Unlock()
 	for name, client := range Clients {
 		client.Stop()
 		delete(Clients, name)

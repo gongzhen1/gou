@@ -6,6 +6,7 @@ import (
 	kafkago "github.com/segmentio/kafka-go"
 	"github.com/yaoapp/gou/process"
 	"github.com/yaoapp/kun/exception"
+	"github.com/yaoapp/kun/log"
 )
 
 var ProcessHandlers = map[string]process.Handler{
@@ -13,6 +14,8 @@ var ProcessHandlers = map[string]process.Handler{
 	"createTopic":  processCreateTopic,
 	"listTopics":   processListTopics,
 	"deleteTopic":  processDeleteTopic,
+	"stop":         processStop,
+	"start":        processStart,
 }
 
 func init() {
@@ -216,5 +219,32 @@ func processDeleteTopic(proc *process.Process) interface{} {
 		exception.New("delete topic failed: %v", 500, err).Throw()
 	}
 
+	return true
+}
+
+// processStop 停止 Kafka 客户端
+// 参数: clientName
+func processStop(proc *process.Process) interface{} {
+	name := proc.ArgsString(0)
+	mu.Lock()
+	defer mu.Unlock()
+	if client, ok := Clients[name]; ok {
+		client.Stop()
+		delete(Clients, name)
+		log.Info("[Kafka] client %s stopped", name)
+	}
+	return nil
+}
+
+// processStart 启动 Kafka 客户端
+// 参数: clientName
+func processStart(proc *process.Process) interface{} {
+	name := proc.ArgsString(0)
+	// Load 内部已在锁内处理同名客户端的停止（幂等），无需在此重复处理
+	_, err := Load(fmt.Sprintf("/mqs/%s.kafka.yao", name), name)
+	if err != nil {
+		exception.New("kafka start failed: %v", 500, err).Throw()
+	}
+	log.Info("[Kafka] client %s started", name)
 	return true
 }

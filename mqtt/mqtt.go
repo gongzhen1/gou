@@ -24,6 +24,7 @@ type Client struct {
 	Password   string      `json:"password"`
 	Subscribes []Subscribe `json:"subscribes"`
 	client     mqttlib.Client
+	stopped    bool
 	mu         sync.RWMutex
 }
 
@@ -36,6 +37,12 @@ type Subscribe struct {
 
 // Load 加载单个 MQTT 配置文件
 func Load(file string, name string) (*Client, error) {
+	// 同名客户端已存在时先停止，避免热重载/重复调用产生多个客户端
+	if client := Select(name); client != nil {
+		client.Stop()
+		delete(Clients, name)
+	}
+
 	data, err := application.App.Read(file)
 	if err != nil {
 		return nil, err
@@ -80,6 +87,13 @@ func (c *Client) start() error {
 	opts.SetConnectTimeout(30 * time.Second)
 	opts.SetAutoReconnect(true)
 	opts.SetOnConnectHandler(func(client mqttlib.Client) {
+		// 已停止的客户端（禁用）即使自动重连也不重新订阅，从而不再接收消息
+		c.mu.RLock()
+		stopped := c.stopped
+		c.mu.RUnlock()
+		if stopped {
+			return
+		}
 		log.Info("[MQTT] client %s connected", c.Name)
 		// 重连后重新订阅
 		for _, sub := range c.Subscribes {
@@ -133,6 +147,9 @@ func (c *Client) subscribe(sub Subscribe) error {
 
 // Stop 停止客户端
 func (c *Client) Stop() {
+	c.mu.Lock()
+	c.stopped = true
+	c.mu.Unlock()
 	if c.client != nil && c.client.IsConnected() {
 		c.client.Disconnect(250)
 		log.Info("[MQTT] client %s stopped", c.Name)
