@@ -202,7 +202,11 @@ func (path Path) streamHandler(getArgs argsHandler) func(c *gin.Context) {
 				}
 				return false
 
-			case msg := <-chanStream:
+			case msg, ok := <-chanStream:
+				if !ok {
+					// channel 已关闭（脚本正常结束），干净收尾，避免写出零值 nil
+					return false
+				}
 				log.Trace("[Stream] %s %s %s %v", path.Path, path.Process, msg.Name, msg.Message)
 				c.SSEvent(msg.Name, msg.Message)
 				return true
