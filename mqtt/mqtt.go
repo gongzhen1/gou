@@ -8,6 +8,7 @@ import (
 
 	mqttlib "github.com/eclipse/paho.mqtt.golang"
 	"github.com/yaoapp/gou/application"
+	"github.com/yaoapp/gou/helper"
 	"github.com/yaoapp/gou/process"
 	"github.com/yaoapp/kun/log"
 )
@@ -53,6 +54,10 @@ func Load(file string, name string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// 解析 client_id 中的 $ENV.xxx，支持与前后文拼接（如 websocket_$ENV.HOSTNAME）
+	// 多容器共享同一份配置时，可用容器独有的环境变量保证 client_id 唯一，避免互相踢线
+	client.ClientID = helper.EnvReplace(client.ClientID)
 
 	// 设置默认值
 	if client.ClientID == "" {

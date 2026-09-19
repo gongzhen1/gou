@@ -45,6 +45,14 @@ func LoadWebSocket(source string, name string) (*WebSocket, error) {
 		return nil, err
 	}
 
+	// 同名客户端已存在时先关闭旧连接：热重载会反复调用本函数，
+	// 旧连接不关闭会在服务端累积多条连接，同一条广播被多次回调（onData 重复触发）
+	if old, has := WebSockets[name]; has && old.Client != nil && old.Client.status == CONNECTED {
+		if err := old.Client.Close(); err != nil {
+			log.Error("WebSocket Client: %s close previous connection error: %s", name, err.Error())
+		}
+	}
+
 	ws := WebSocket{}
 	err = jsoniter.Unmarshal(config, &ws)
 	if err != nil {
