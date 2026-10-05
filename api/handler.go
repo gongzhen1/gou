@@ -163,6 +163,11 @@ func (path Path) streamHandler(getArgs argsHandler) func(c *gin.Context) {
 		path.setPayload(c)
 		path.reqContentType(c)
 
+		// SSE 必须禁用缓存，否则浏览器/代理会缓冲整个响应导致流式失效
+		c.Header("Cache-Control", "no-cache, no-transform")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
+
 		chanStream := make(chan ssEventData, 1)
 		chanError := make(chan error, 1)
 		ctx, cancel := context.WithCancel(context.Background())

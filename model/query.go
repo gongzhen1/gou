@@ -385,6 +385,12 @@ func (param QueryParam) Where(where QueryWhere, qb query.Query, mod *Model) {
 			}
 			qb.WhereIn(column, where.Value)
 			break
+		case "notin":
+			if value, ok := where.Value.(string); ok {
+				where.Value = strings.Split(value, ",")
+			}
+			qb.WhereNotIn(column, where.Value)
+			break
 		default:
 			op, has := opmap[where.OP]
 			if !has {
@@ -411,6 +417,11 @@ func (param QueryParam) Where(where QueryWhere, qb query.Query, mod *Model) {
 				where.Value = strings.Split(value, ",")
 			}
 			qb.OrWhereIn(column, where.Value)
+		case "notin":
+			if value, ok := where.Value.(string); ok {
+				where.Value = strings.Split(value, ",")
+			}
+			qb.OrWhereNotIn(column, where.Value)
 		default:
 			op, has := opmap[where.OP]
 			if !has {
