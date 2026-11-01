@@ -1,6 +1,7 @@
 package xun
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/yaoapp/gou/schema/types"
@@ -151,15 +152,20 @@ func ColumnToBlueprint(col *schema.Column, prikeys []string) types.Column {
 func parseColumnType(col *schema.Column, column *types.Column) {
 	column.Type = col.Type
 
+	// 自增列（PostgreSQL 的 nextval 序列）的默认值由数据库生成，不参与结构比对
+	if col.Extra != nil && *col.Extra != "" {
+		column.Default = nil
+		column.DefaultRaw = ""
+	} else if column.Default != nil {
+		column.Default = normalizeDefault(column.Default)
+	}
+
 	switch col.Type {
 
 	case "enum":
 		column.Option = col.Option
-		switch column.Default.(type) {
-		case []byte:
-			column.Default = strings.ReplaceAll(string(column.Default.([]byte)), "'", "")
-		case string:
-			column.Default = strings.ReplaceAll(column.Default.(string), "'", "")
+		if v, ok := column.Default.(string); ok {
+			column.Default = strings.ReplaceAll(v, "'", "")
 		}
 		break
 
@@ -170,29 +176,32 @@ func parseColumnType(col *schema.Column, column *types.Column) {
 			column.Nullable = false
 		}
 
-		switch column.Default.(type) {
-		case []byte:
-			column.Default = any.Of(string(column.Default.([]byte))).CInt()
-		case string:
-			column.Default = any.Of(column.Default.(string)).CInt()
+		if v, ok := column.Default.(string); ok {
+			if _, err := strconv.ParseFloat(v, 64); err == nil {
+				column.Default = any.Of(v).CInt()
+			} else {
+				column.Default = nil
+			}
 		}
 		break
 
 	case "float", "decimal", "double":
 		column.Length = 0
-		switch column.Default.(type) {
-		case []byte:
-			column.Default = any.Of(string(column.Default.([]byte))).CFloat()
-		case string:
-			column.Default = any.Of(column.Default.(string)).CFloat()
+		if v, ok := column.Default.(string); ok {
+			if _, err := strconv.ParseFloat(v, 64); err == nil {
+				column.Default = any.Of(v).CFloat()
+			} else {
+				column.Default = nil
+			}
 		}
 		break
 
 	case "boolean":
 		if v, ok := column.Default.(string); ok {
-			if v == "false" {
+			switch strings.ToLower(v) {
+			case "false", "f", "0":
 				column.Default = false
-			} else if v == "true" {
+			case "true", "t", "1":
 				column.Default = true
 			}
 		}
@@ -203,12 +212,8 @@ func parseColumnType(col *schema.Column, column *types.Column) {
 			// fmt.Println("OctetLength:", column.Name, *col.OctetLength)
 			column.Length = *col.OctetLength
 		}
-		switch column.Default.(type) {
-		case []byte:
-			column.DefaultRaw = string(column.Default.([]byte))
-			column.Default = nil
-		case string:
-			column.DefaultRaw = string(column.Default.(string))
+		if v, ok := column.Default.(string); ok {
+			column.DefaultRaw = v
 			column.Default = nil
 		}
 		break
@@ -220,4 +225,25 @@ func parseColumnType(col *schema.Column, column *types.Column) {
 	default:
 		column.Type = col.Type
 	}
+}
+
+// normalizeDefault 归一化数据库默认值：去掉 PostgreSQL 的类型转换后缀（如 'pending'::character varying）与单引号
+func normalizeDefault(v interface{}) interface{} {
+	var s string
+	switch d := v.(type) {
+	case []byte:
+		s = string(d)
+	case string:
+		s = d
+	default:
+		return v
+	}
+	if i := strings.Index(s, "::"); i >= 0 {
+		s = s[:i]
+	}
+	s = strings.TrimSpace(s)
+	if len(s) >= 2 && strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'") {
+		s = s[1 : len(s)-1]
+	}
+	return s
 }
